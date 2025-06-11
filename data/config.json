@@ -1,0 +1,28 @@
+{
+  "operators": ["Blaise Mibeck", "Anthony Back", "Logan Miles", "Gary George"],
+  "sample_types": ["standard pellet", "non-standard pellet", "loose powder", "liquid", "coupon", "object"],
+  "missing_data_options": ["---", "na", "ND", "BDL"],
+  "instruments": {
+    "Purdue PanAlytical Epsilon 4": {
+      "tube_elements": ["Ag", "Sn", "Sb", "Te"],
+      "tube_type": "Ag anode",
+      "default_settings": {
+        "ignore_tube_elements": true
+      }
+    },
+    "Example Bruker S2 PUMA": {
+      "tube_elements": ["Rh", "Pd"],
+      "tube_type": "Rh anode",
+      "default_settings": {
+        "ignore_tube_elements": true
+      }
+    },
+    "Example Rigaku NEX CG": {
+      "tube_elements": ["Pd", "Mo"],
+      "tube_type": "Pd anode",
+      "default_settings": {
+        "ignore_tube_elements": false
+      }
+    }
+  }
+}
