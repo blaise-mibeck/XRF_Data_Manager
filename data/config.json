@@ -1,9 +1,9 @@
 {
-  "operators": ["Blaise Mibeck", "Anthony Back", "Logan Miles", "Gary George"],
+  "operators": ["Operator1", "Operator2"],
   "sample_types": ["standard pellet", "non-standard pellet", "loose powder", "liquid", "coupon", "object"],
   "missing_data_options": ["---", "na", "ND", "BDL"],
   "instruments": {
-    "Purdue PanAlytical Epsilon 4": {
+    "PANAlytical Epsilon 4": {
       "tube_elements": ["Ag", "Sn", "Sb", "Te"],
       "tube_type": "Ag anode",
       "default_settings": {
