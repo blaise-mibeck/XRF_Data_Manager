@@ -120,6 +120,61 @@ Edit the `data/config.json` file to customize:
 - Check the format of your QAN files
 - Ensure you have write permissions for the output directory
 
+## Code Structure
+
+The application is organized into the following main components:
+
+- **src/controllers/**: Core logic for data processing and export.
+  - `data_processor.py`: Handles parsing, processing, and calculation of XRF data from QAN files.
+  - `excel_formatter.py`: Formats and writes processed data to Excel files.
+  - `csv_exporter.py`: Exports data tables to CSV format.
+
+- **src/models/**: Data models and parsers.
+  - `qan_parser.py`: Parses QAN files and extracts measurement data.
+  - `project_data.py`: Represents project-level metadata.
+  - `lookup_table.py`: Manages sample lookup and mapping tables.
+  - `element_data.py`: Structures and classifies element data.
+
+- **src/views/**: User interface components (wizard pages).
+  - `main_window.py`: Main wizard window and navigation logic.
+  - `folder_selection.py`: Page for selecting the data folder.
+  - `metadata_form.py`: Page for entering project metadata.
+  - `lookup_editor.py`: Page for editing the sample lookup table.
+  - `table_options.py`: Page for configuring table generation options.
+  - `preview_window.py`: Page for previewing and exporting results.
+
+- **config.py**: Application-wide configuration settings.
+- **main.py**: Application entry point.
+- **data/config.json**: Customizable options for operators, instruments, sample types, and missing data representations.
+- **.spec files**: PyInstaller build specifications for creating standalone executables.
+
+## Configuration File Format
+
+The `data/config.json` file allows customization of operators, sample types, instruments, and missing data options. Example structure:
+
+```json
+{
+  "operators": ["Operator1", "Operator2"],
+  "sample_types": ["standard pellet", "non-standard pellet", ...],
+  "missing_data_options": ["---", "na", "ND", "BDL"],
+  "instruments": {
+    "Instrument Name": {
+      "tube_elements": ["Ag", "Sn"],
+      "tube_type": "Ag anode",
+      "default_settings": { "ignore_tube_elements": true }
+    }
+  }
+}
+```
+
+## Extending and Contributing
+
+- To add new data processing logic, extend the relevant module in `src/controllers/`.
+- To support new file formats, add a parser in `src/models/`.
+- To customize the UI, modify or add wizard pages in `src/views/`.
+- For configuration, update `data/config.json`.
+- PyInstaller spec files (`*.spec`) can be edited to change build options for standalone executables.
+
 ## License
 
 [MIT License](LICENSE)

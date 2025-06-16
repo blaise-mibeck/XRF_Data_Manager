@@ -51,3 +51,6 @@ Example Data/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# PyInstaller
+*.spec
