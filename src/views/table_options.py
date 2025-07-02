@@ -19,6 +19,7 @@ from qtpy.QtCore import Qt
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.controllers.data_processor import process_data
+from src.controllers.csv_exporter import create_concatenated_dataframe
 
 
 class TableOptionsPage(QWizardPage):
@@ -285,6 +286,33 @@ class TableOptionsPage(QWizardPage):
             
             # Update shared data
             self.wizard_ref.shared_data['generated_tables'] = generated_tables
+            print('Generated tables:', list(generated_tables.keys()))
+            for name, df in generated_tables.items():
+                print(f'Table: {name}, columns: {df.columns.tolist()}')
+                print(df.head())
+            
+            # Step 3: Create concatenated DataFrame
+            print("Step 3: Creating concatenated DataFrame...")
+            concat_df = create_concatenated_dataframe(generated_tables, metadata, lookup_table)
+            print(f"Concatenated DataFrame shape: {concat_df.shape}")
+            print(f"Concatenated DataFrame columns: {concat_df.columns.tolist()}")
+            
+            # Step 4: Reshape to long format if needed
+            print("Step 4: Reshaping DataFrame to long format...")
+            long_df = self._create_long_format_dataframe(concat_df)
+            print(f"Long DataFrame shape: {long_df.shape}")
+            print(f"Long DataFrame columns: {long_df.columns.tolist()}")
+            
+            # Step 5: Extract ternary data for all supported systems
+            print("Step 5: Extracting ternary data...")
+            self._extract_ternary_data(long_df, generated_tables)
+            
+            # Step 6: Store long-form DataFrame in shared_data
+            print("Step 6: Storing long-form DataFrame...")
+            self.wizard_ref.shared_data['ternary_long_df'] = long_df
+            
+            # Step 7: Store tables and ternary data in shared_data
+            print("Step 7: All data stored in shared_data for ternary plotting")
             
             QMessageBox.information(
                 self,
@@ -344,3 +372,243 @@ class TableOptionsPage(QWizardPage):
     def on_generate_complete(self):
         """Signal that tables have been generated and completion state changed."""
         self.completeChanged.emit()
+    
+    def _create_long_format_dataframe(self, concat_df):
+        """
+        Create a long-format DataFrame from the concatenated DataFrame.
+        
+        Args:
+            concat_df: The concatenated DataFrame from create_concatenated_dataframe
+            
+        Returns:
+            Long-format DataFrame with columns: Element, Sample ID, Wt.%
+        """
+        import pandas as pd
+        
+        # Check if we already have the right format
+        if 'Element' in concat_df.columns and 'Sample ID' in concat_df.columns and 'Wt.%' in concat_df.columns:
+            print("DataFrame already in long format")
+            return concat_df
+        
+        # If we have a wide format with Element column, reshape it
+        if 'Element' in concat_df.columns:
+            # Get columns that are not Element or Z (these should be sample columns)
+            id_vars = ['Element']
+            if 'Z' in concat_df.columns:
+                id_vars.append('Z')
+            
+            value_vars = [col for col in concat_df.columns if col not in id_vars]
+            
+            if value_vars:
+                print(f"Melting DataFrame with id_vars: {id_vars}, value_vars: {value_vars[:5]}...")
+                long_df = concat_df.melt(
+                    id_vars=id_vars, 
+                    value_vars=value_vars, 
+                    var_name='Sample ID', 
+                    value_name='Wt.%'
+                )
+                
+                # Remove rows with NaN values
+                long_df = long_df.dropna(subset=['Wt.%'])
+                
+                return long_df
+        
+        # If we can't reshape, return as is
+        print("Warning: Could not reshape DataFrame to long format")
+        return concat_df
+    
+    def _extract_ternary_data(self, long_df, generated_tables):
+        """
+        Extract ternary data for all supported systems from the long-format DataFrame.
+        
+        Args:
+            long_df: Long-format DataFrame with Element, Sample ID, Wt.% columns
+            generated_tables: Dictionary of generated tables for fallback
+        """
+        import pandas as pd
+        
+        # Define supported ternary systems
+        ternary_systems = {
+            'SiO2-Al2O3-Fe2O3': ['SiO2', 'Al2O3', 'Fe2O3'],
+            'CaO-Al2O3-SiO2': ['CaO', 'Al2O3', 'SiO2'],
+            'CaO-Al2O3-Fe2O3': ['CaO', 'Al2O3', 'Fe2O3'],
+            'AFM (Na2O+K2O-FeO+Fe2O3-MgO)': ['Na2O+K2O', 'FeO+Fe2O3', 'MgO'],
+            'Fe-Ti-O': ['Fe', 'Ti', 'O'],
+        }
+        
+        # Initialize storage for ternary data
+        self.wizard_ref.shared_data['ternary_data_by_system'] = {}
+        self.wizard_ref.shared_data['ternary_labels_by_system'] = {}
+        
+        # Check if we have the required columns
+        if not all(col in long_df.columns for col in ['Element', 'Sample ID', 'Wt.%']):
+            print("Warning: Long DataFrame missing required columns for ternary extraction")
+            print(f"Available columns: {long_df.columns.tolist()}")
+            
+            # Try to extract from wide-format tables as fallback
+            self._extract_ternary_from_wide_tables(generated_tables, ternary_systems)
+            return
+        
+        print(f"Extracting ternary data from {len(long_df['Sample ID'].unique())} samples")
+        print(f"Available elements: {sorted(long_df['Element'].unique())}")
+        
+        # Extract data for each ternary system
+        for system_name, required_oxides in ternary_systems.items():
+            print(f"\nProcessing ternary system: {system_name}")
+            print(f"Required oxides: {required_oxides}")
+            
+            ternary_points = []
+            labels = []
+            
+            # Check which oxides are available
+            available_oxides = [oxide for oxide in required_oxides if oxide in long_df['Element'].values]
+            print(f"Available oxides: {available_oxides}")
+            
+            if len(available_oxides) < 3:
+                print(f"Skipping {system_name}: only {len(available_oxides)}/3 oxides available")
+                continue
+            
+            # Process each sample
+            for sample_id in long_df['Sample ID'].unique():
+                sample_data = long_df[long_df['Sample ID'] == sample_id]
+                
+                values = []
+                missing_oxides = []
+                
+                for oxide in required_oxides:
+                    oxide_data = sample_data[sample_data['Element'] == oxide]
+                    if not oxide_data.empty:
+                        value = float(oxide_data['Wt.%'].iloc[0])
+                        values.append(value)
+                    else:
+                        values.append(0.0)
+                        missing_oxides.append(oxide)
+                
+                # Only include samples with at least some data and positive sum
+                total = sum(values)
+                if total > 0 and len(missing_oxides) < len(required_oxides):
+                    # Normalize to 100%
+                    normalized_values = [v / total * 100 for v in values]
+                    ternary_points.append(tuple(normalized_values))
+                    labels.append(str(sample_id))
+                    
+                    if len(missing_oxides) > 0:
+                        print(f"Sample {sample_id}: missing {missing_oxides}, using zeros")
+            
+            print(f"Extracted {len(ternary_points)} points for {system_name}")
+            
+            # Store the data
+            self.wizard_ref.shared_data['ternary_data_by_system'][system_name] = ternary_points
+            self.wizard_ref.shared_data['ternary_labels_by_system'][system_name] = labels
+        
+        # Set default system data for backward compatibility
+        if self.wizard_ref.shared_data['ternary_data_by_system']:
+            first_system = list(self.wizard_ref.shared_data['ternary_data_by_system'].keys())[0]
+            self.wizard_ref.shared_data['ternary_data'] = self.wizard_ref.shared_data['ternary_data_by_system'][first_system]
+            self.wizard_ref.shared_data['ternary_labels'] = self.wizard_ref.shared_data['ternary_labels_by_system'][first_system]
+            print(f"Set default ternary system to: {first_system}")
+    
+    def _extract_ternary_from_wide_tables(self, generated_tables, ternary_systems):
+        """
+        Fallback method to extract ternary data from wide-format tables.
+        
+        Args:
+            generated_tables: Dictionary of generated tables
+            ternary_systems: Dictionary of ternary systems and their required oxides
+        """
+        import pandas as pd
+        
+        print("Using fallback: extracting ternary data from wide-format tables")
+        
+        # Find the best oxide table to use
+        oxide_table = None
+        table_name = None
+        
+        # Priority order for selecting oxide tables
+        table_priorities = [
+            'relative_major_oxides',
+            'absolute_major_oxides', 
+            'relative_trace_oxides',
+            'absolute_trace_oxides'
+        ]
+        
+        for priority_table in table_priorities:
+            if priority_table in generated_tables:
+                oxide_table = generated_tables[priority_table]
+                table_name = priority_table
+                break
+        
+        if oxide_table is None:
+            print("No oxide tables found for ternary extraction")
+            return
+        
+        print(f"Using table: {table_name}")
+        print(f"Table shape: {oxide_table.shape}")
+        print(f"Available elements: {oxide_table['Element'].tolist()}")
+        
+        # Initialize storage
+        self.wizard_ref.shared_data['ternary_data_by_system'] = {}
+        self.wizard_ref.shared_data['ternary_labels_by_system'] = {}
+        
+        # Get sample columns (everything except Z and Element)
+        sample_columns = [col for col in oxide_table.columns if col not in ['Z', 'Element']]
+        print(f"Sample columns: {sample_columns}")
+        
+        # Extract data for each ternary system
+        for system_name, required_oxides in ternary_systems.items():
+            print(f"\nProcessing ternary system: {system_name}")
+            
+            ternary_points = []
+            labels = []
+            
+            # Check which oxides are available in the table
+            available_oxides = []
+            oxide_indices = {}
+            
+            for oxide in required_oxides:
+                oxide_rows = oxide_table[oxide_table['Element'] == oxide]
+                if not oxide_rows.empty:
+                    available_oxides.append(oxide)
+                    oxide_indices[oxide] = oxide_rows.index[0]
+            
+            print(f"Available oxides: {available_oxides}")
+            
+            if len(available_oxides) < 3:
+                print(f"Skipping {system_name}: only {len(available_oxides)}/3 oxides available")
+                continue
+            
+            # Process each sample
+            for sample_col in sample_columns:
+                values = []
+                
+                for oxide in required_oxides:
+                    if oxide in oxide_indices:
+                        value = oxide_table.loc[oxide_indices[oxide], sample_col]
+                        # Handle NaN values
+                        if pd.isna(value):
+                            values.append(0.0)
+                        else:
+                            values.append(float(value))
+                    else:
+                        values.append(0.0)
+                
+                # Only include samples with positive sum
+                total = sum(values)
+                if total > 0:
+                    # Normalize to 100%
+                    normalized_values = [v / total * 100 for v in values]
+                    ternary_points.append(tuple(normalized_values))
+                    labels.append(str(sample_col))
+            
+            print(f"Extracted {len(ternary_points)} points for {system_name}")
+            
+            # Store the data
+            self.wizard_ref.shared_data['ternary_data_by_system'][system_name] = ternary_points
+            self.wizard_ref.shared_data['ternary_labels_by_system'][system_name] = labels
+        
+        # Set default system data for backward compatibility
+        if self.wizard_ref.shared_data['ternary_data_by_system']:
+            first_system = list(self.wizard_ref.shared_data['ternary_data_by_system'].keys())[0]
+            self.wizard_ref.shared_data['ternary_data'] = self.wizard_ref.shared_data['ternary_data_by_system'][first_system]
+            self.wizard_ref.shared_data['ternary_labels'] = self.wizard_ref.shared_data['ternary_labels_by_system'][first_system]
+            print(f"Set default ternary system to: {first_system}")

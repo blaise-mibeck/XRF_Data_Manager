@@ -22,6 +22,7 @@ from src.views.metadata_form import MetadataFormPage
 from src.views.lookup_editor import LookupEditorPage
 from src.views.table_options import TableOptionsPage
 from src.views.preview_window import PreviewPage
+from src.views.ternary_diagram_page import TernaryDiagramPage
 
 
 class XRFWizard(QWizard):
@@ -36,6 +37,7 @@ class XRFWizard(QWizard):
     PAGE_LOOKUP = 2
     PAGE_OPTIONS = 3
     PAGE_PREVIEW = 4
+    PAGE_TERNARY = 5
     
     def __init__(self, parent=None):
         """Initialize the wizard with all pages."""
@@ -77,12 +79,14 @@ class XRFWizard(QWizard):
         self.lookup_page = LookupEditorPage(self)
         self.options_page = TableOptionsPage(self)
         self.preview_page = PreviewPage(self)
+        self.ternary_page = TernaryDiagramPage(self)
         
         self.setPage(self.PAGE_FOLDER, self.folder_page)
         self.setPage(self.PAGE_METADATA, self.metadata_page)
         self.setPage(self.PAGE_LOOKUP, self.lookup_page)
         self.setPage(self.PAGE_OPTIONS, self.options_page)
         self.setPage(self.PAGE_PREVIEW, self.preview_page)
+        self.setPage(self.PAGE_TERNARY, self.ternary_page)
         
         # Set wizard style
         self.setWizardStyle(QWizard.ModernStyle)

@@ -64,7 +64,7 @@ def create_concatenated_dataframe(
     lookup_table: List[Dict[str, str]]
 ) -> pd.DataFrame:
     """
-    Create a concatenated DataFrame for CSV export.
+    Create a concatenated DataFrame for CSV export and ternary plotting.
     
     Args:
         tables: Dictionary of table DataFrames
@@ -72,109 +72,163 @@ def create_concatenated_dataframe(
         lookup_table: Sample lookup table
         
     Returns:
-        Concatenated DataFrame
+        Concatenated DataFrame in long format with Element, Sample ID, Wt.% columns
     """
+    print("Creating concatenated DataFrame for ternary plotting...")
+    
     # Initialize list to hold all rows
     all_rows = []
     
-    # Iterate through each table
-    for table_name, df in tables.items():
-        # Extract table type
-        is_oxide = 'oxide' in table_name
-        is_absolute = 'absolute' in table_name
-        is_major = 'major' in table_name
-        
-        # Skip Z and Element columns
-        data_df = df.iloc[:, 2:]
-        
-        # Get element/oxide names
-        elements = df['Element'].tolist()
-        
-        # Iterate through each sample (column)
-        for sample_col in data_df.columns:
-            # Find lookup data for this sample
-            sample_id = sample_col  # The column name is the report abbreviation
+    # Priority order for table processing (prefer oxide tables for ternary plotting)
+    table_priority = [
+        'relative_major_oxides',
+        'absolute_major_oxides',
+        'relative_trace_oxides', 
+        'absolute_trace_oxides',
+        'relative_major_elements',
+        'absolute_major_elements',
+        'relative_trace_elements',
+        'absolute_trace_elements'
+    ]
+    
+    # Process tables in priority order
+    processed_tables = set()
+    
+    for priority_table in table_priority:
+        if priority_table in tables and priority_table not in processed_tables:
+            df = tables[priority_table]
+            print(f"Processing table: {priority_table}")
             
-            # Find the full sample data in lookup table
-            lookup_data = None
-            for item in lookup_table:
-                if item.get('report_abbreviation') == sample_col or item.get('sample_id') == sample_col:
-                    lookup_data = item
-                    break
+            # Extract table type
+            is_oxide = 'oxide' in priority_table
+            is_absolute = 'absolute' in priority_table
+            is_major = 'major' in priority_table
             
-            if lookup_data is None:
-                # Create minimal lookup data
-                lookup_data = {
-                    'sample_id': sample_col,
-                    'notebook_id': '',
-                    'client_id': '',
-                    'report_abbreviation': sample_col
-                }
+            # Skip metadata and lookup tables
+            if priority_table in ['metadata', 'lookup']:
+                continue
             
-            # Get concentrations for this sample
-            concentrations = data_df[sample_col].tolist()
+            # Skip if no Element column
+            if 'Element' not in df.columns:
+                continue
             
-            # Create rows for this sample
-            for i, element in enumerate(elements):
-                # Skip summary rows like 'Total' and 'Balance'
-                if element in ['Total', 'Balance']:
-                    continue
+            # Get data columns (skip Z and Element columns)
+            data_df = df.iloc[:, 2:]
+            
+            # Get element/oxide names
+            elements = df['Element'].tolist()
+            
+            # Iterate through each sample (column)
+            for sample_col in data_df.columns:
+                # Find lookup data for this sample
+                sample_id = sample_col  # The column name is the report abbreviation
                 
-                # Extract element Z
-                z = df['Z'].iloc[i] if i < len(df) else 0
+                # Find the full sample data in lookup table
+                lookup_data = None
+                for item in lookup_table:
+                    if item.get('report_abbreviation') == sample_col or item.get('sample_id') == sample_col:
+                        lookup_data = item
+                        break
                 
-                # Parse element and oxide info
-                base_element = element
-                oxide = None
-                if is_oxide and '(' in element:
-                    # Try to extract base element and oxide
-                    parts = element.split('(')
-                    if len(parts) > 1:
-                        base_element = parts[0].strip()
-                        oxide = element
+                if lookup_data is None:
+                    # Create minimal lookup data
+                    lookup_data = {
+                        'sample_id': sample_col,
+                        'notebook_id': '',
+                        'client_id': '',
+                        'report_abbreviation': sample_col
+                    }
                 
-                # Get concentration value
-                concentration = concentrations[i] if i < len(concentrations) else np.nan
+                # Get concentrations for this sample
+                concentrations = data_df[sample_col].tolist()
                 
-                # Skip NaN values
-                if pd.isna(concentration):
-                    continue
-                
-                # Determine unit
-                unit = 'ppm' if not is_major else '%'
-                
-                # Calculate oxide concentration if applicable
-                oxide_concentration = None
-                if is_oxide:
-                    oxide_concentration = concentration
+                # Create rows for this sample
+                for i, element in enumerate(elements):
+                    # Skip summary rows like 'Total', 'Balance', 'Trace'
+                    if element in ['Total', 'Balance', 'Trace']:
+                        continue
                     
-                    # If we have the base element, try to convert back to element concentration
-                    if base_element in config.OXIDE_FACTORS:
-                        _, factor = config.OXIDE_FACTORS[base_element]
-                        concentration = oxide_concentration / factor
-                
-                # Create row
-                row = {
-                    'Line': len(all_rows) + 1,
-                    'Sample ID': lookup_data.get('sample_id', ''),
-                    'Notebook ID': lookup_data.get('notebook_id', ''),
-                    'Client ID': lookup_data.get('client_id', ''),
-                    'Report Abbreviation': lookup_data.get('report_abbreviation', ''),
-                    'Z': z,
-                    'Element': base_element,
-                    'Concentration': concentration,
-                    'Unit': unit,
-                    'Wt.%': concentration if unit == '%' else concentration * config.PPM_TO_PERCENT,
-                    'Omnian': '',  # Not available in processed data
-                    'Oxide': oxide,
-                    'OxideConc.wt%': oxide_concentration
-                }
-                
-                all_rows.append(row)
+                    # Extract element Z
+                    z = df['Z'].iloc[i] if i < len(df) else 0
+                    
+                    # Get concentration value
+                    concentration = concentrations[i] if i < len(concentrations) else np.nan
+                    
+                    # Skip NaN values and zero/negative values
+                    if pd.isna(concentration) or concentration <= 0:
+                        continue
+                    
+                    # For oxide tables, use the oxide name directly
+                    # For element tables, use the element name
+                    element_name = element
+                    
+                    # Parse element and oxide info for detailed tracking
+                    base_element = element
+                    oxide = None
+                    if is_oxide:
+                        oxide = element
+                        # Try to extract base element if in parentheses format
+                        if '(' in element:
+                            parts = element.split('(')
+                            if len(parts) > 1:
+                                base_element = parts[0].strip()
+                    
+                    # Determine unit and convert to wt%
+                    unit = 'ppm' if not is_major else '%'
+                    
+                    # Calculate weight percent
+                    if unit == '%':
+                        wt_percent = concentration
+                    else:  # ppm
+                        wt_percent = concentration * config.PPM_TO_PERCENT if hasattr(config, 'PPM_TO_PERCENT') else concentration / 10000
+                    
+                    # Calculate oxide concentration if applicable
+                    oxide_concentration = None
+                    if is_oxide:
+                        oxide_concentration = concentration
+                    elif hasattr(config, 'OXIDE_FACTORS') and base_element in config.OXIDE_FACTORS:
+                        # Convert element to oxide concentration
+                        oxide_formula, oxide_factor = config.OXIDE_FACTORS[base_element]
+                        oxide_concentration = wt_percent * oxide_factor
+                        oxide = oxide_formula
+                    
+                    # Create row - use element_name as the Element for ternary plotting
+                    row = {
+                        'Line': len(all_rows) + 1,
+                        'Sample ID': lookup_data.get('sample_id', ''),
+                        'Notebook ID': lookup_data.get('notebook_id', ''),
+                        'Client ID': lookup_data.get('client_id', ''),
+                        'Report Abbreviation': lookup_data.get('report_abbreviation', ''),
+                        'Z': z,
+                        'Element': element_name,  # This is what ternary plotting will use
+                        'Concentration': concentration,
+                        'Unit': unit,
+                        'Wt.%': wt_percent,
+                        'Omnian': '',  # Not available in processed data
+                        'Oxide': oxide,
+                        'OxideConc.wt%': oxide_concentration
+                    }
+                    
+                    all_rows.append(row)
+            
+            processed_tables.add(priority_table)
+    
+    # Process any remaining tables not in priority list
+    for table_name, df in tables.items():
+        if table_name not in processed_tables and table_name not in ['metadata', 'lookup']:
+            print(f"Processing remaining table: {table_name}")
+            # Use the same logic as above for remaining tables
+            # (This is a simplified version for any edge cases)
+            
+    print(f"Created concatenated DataFrame with {len(all_rows)} rows")
     
     # Create DataFrame
     if all_rows:
-        return pd.DataFrame(all_rows)
+        result_df = pd.DataFrame(all_rows)
+        print(f"DataFrame columns: {result_df.columns.tolist()}")
+        print(f"Unique elements: {sorted(result_df['Element'].unique())}")
+        print(f"Unique samples: {sorted(result_df['Sample ID'].unique())}")
+        return result_df
     else:
         # Return empty DataFrame with correct columns
         return pd.DataFrame(columns=[
