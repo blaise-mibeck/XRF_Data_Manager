@@ -207,12 +207,16 @@ class PreviewPage(QWizardPage):
             return
         
         try:
-            # Save to CSV
+            # Get QAN files for direct processing
+            qan_files = self.wizard_ref.shared_data.get('qan_files', [])
+            
+            # Save to CSV with QAN files for enhanced processing
             save_to_csv(
                 tables=tables,
                 csv_path=self.csv_path,
                 metadata=self.wizard_ref.shared_data.get('metadata', {}),
-                lookup_table=self.wizard_ref.shared_data.get('lookup_table', [])
+                lookup_table=self.wizard_ref.shared_data.get('lookup_table', []),
+                qan_files=qan_files
             )
             
             QMessageBox.information(
